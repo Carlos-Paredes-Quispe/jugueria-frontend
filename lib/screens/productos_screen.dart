@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
 
 class ProductosScreen extends StatefulWidget {
   const ProductosScreen({Key? key}) : super(key: key);
@@ -10,9 +11,7 @@ class ProductosScreen extends StatefulWidget {
 }
 
 class _ProductosScreenState extends State<ProductosScreen> {
-  final Color sidebarBackground = const Color(0xFF1A1A1A);
   final Color copperPrimary = const Color(0xFFC07C46);
-  final Color textLight = Colors.white70;
 
   final TextEditingController _searchController = TextEditingController();
   
@@ -102,74 +101,84 @@ class _ProductosScreenState extends State<ProductosScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: sidebarBackground,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-              title: const Text('Nuevo Producto', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nombreCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Nombre del producto',
-                      labelStyle: TextStyle(color: textLight),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textLight)),
-                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
-                    ),
+            // ENVOLVEMOS EL DIÁLOGO PARA QUE RESPETE EL TEMA
+            return ValueListenableBuilder<bool>(
+              valueListenable: isDarkModeGlobal,
+              builder: (context, isDark, child) {
+                final Color dialogBg = isDark ? const Color(0xFF1A1A1A) : Colors.white;
+                final Color dialogText = isDark ? Colors.white : const Color(0xFF222222);
+                final Color dialogSubtext = isDark ? Colors.white70 : Colors.black54;
+
+                return AlertDialog(
+                  backgroundColor: dialogBg,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  title: Text('Nuevo Producto', style: TextStyle(color: dialogText, fontWeight: FontWeight.bold)),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nombreCtrl,
+                        style: TextStyle(color: dialogText),
+                        decoration: InputDecoration(
+                          labelText: 'Nombre del producto',
+                          labelStyle: TextStyle(color: dialogSubtext),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: dialogSubtext)),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: precioCtrl,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: dialogText),
+                        decoration: InputDecoration(
+                          labelText: 'Precio (S/)',
+                          labelStyle: TextStyle(color: dialogSubtext),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: dialogSubtext)),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      DropdownButtonFormField<int>(
+                        dropdownColor: dialogBg,
+                        value: categoriaSeleccionadaId,
+                        style: TextStyle(color: dialogText),
+                        decoration: InputDecoration(
+                          labelText: 'Categoría',
+                          labelStyle: TextStyle(color: dialogSubtext),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: dialogSubtext)),
+                        ),
+                        items: _categoriasOriginales.map<DropdownMenuItem<int>>((cat) {
+                          return DropdownMenuItem<int>(
+                            value: cat['id'],
+                            child: Text(cat['nombre'] ?? ''),
+                          );
+                        }).toList(),
+                        onChanged: (int? nuevoId) {
+                          setDialogState(() {
+                            categoriaSeleccionadaId = nuevoId;
+                          });
+                        },
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: precioCtrl,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Precio (S/)',
-                      labelStyle: TextStyle(color: textLight),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textLight)),
-                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancelar', style: TextStyle(color: Colors.redAccent)),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  DropdownButtonFormField<int>(
-                    dropdownColor: sidebarBackground,
-                    value: categoriaSeleccionadaId,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Categoría',
-                      labelStyle: TextStyle(color: textLight),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textLight)),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: copperPrimary),
+                      onPressed: () {
+                        if (nombreCtrl.text.isEmpty || precioCtrl.text.isEmpty || categoriaSeleccionadaId == null) return;
+                        Navigator.pop(context);
+                        _crearProductoAPI(nombreCtrl.text, double.tryParse(precioCtrl.text) ?? 0.0, categoriaSeleccionadaId!);
+                      },
+                      child: const Text('Agregar', style: TextStyle(color: Colors.white)),
                     ),
-                    items: _categoriasOriginales.map<DropdownMenuItem<int>>((cat) {
-                      return DropdownMenuItem<int>(
-                        value: cat['id'],
-                        child: Text(cat['nombre'] ?? ''),
-                      );
-                    }).toList(),
-                    onChanged: (int? nuevoId) {
-                      setDialogState(() {
-                        categoriaSeleccionadaId = nuevoId;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.redAccent)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: copperPrimary),
-                  onPressed: () {
-                    if (nombreCtrl.text.isEmpty || precioCtrl.text.isEmpty || categoriaSeleccionadaId == null) return;
-                    Navigator.pop(context);
-                    _crearProductoAPI(nombreCtrl.text, double.tryParse(precioCtrl.text) ?? 0.0, categoriaSeleccionadaId!);
-                  },
-                  child: const Text('Agregar', style: TextStyle(color: Colors.white)),
-                ),
-              ],
+                  ],
+                );
+              }
             );
           },
         );
@@ -208,51 +217,60 @@ class _ProductosScreenState extends State<ProductosScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: sidebarBackground,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: const Text('Editar Producto', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nombreCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Nombre del producto',
-                  labelStyle: TextStyle(color: textLight),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textLight)),
-                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
-                ),
+        return ValueListenableBuilder<bool>(
+          valueListenable: isDarkModeGlobal,
+          builder: (context, isDark, child) {
+            final Color dialogBg = isDark ? const Color(0xFF1A1A1A) : Colors.white;
+            final Color dialogText = isDark ? Colors.white : const Color(0xFF222222);
+            final Color dialogSubtext = isDark ? Colors.white70 : Colors.black54;
+
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: Text('Editar Producto', style: TextStyle(color: dialogText, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nombreCtrl,
+                    style: TextStyle(color: dialogText),
+                    decoration: InputDecoration(
+                      labelText: 'Nombre del producto',
+                      labelStyle: TextStyle(color: dialogSubtext),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: dialogSubtext)),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: precioCtrl,
+                    keyboardType: TextInputType.number,
+                    style: TextStyle(color: dialogText),
+                    decoration: InputDecoration(
+                      labelText: 'Precio (S/)',
+                      labelStyle: TextStyle(color: dialogSubtext),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: dialogSubtext)),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: precioCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Precio (S/)',
-                  labelStyle: TextStyle(color: textLight),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textLight)),
-                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: copperPrimary)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar', style: TextStyle(color: Colors.redAccent)),
                 ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.redAccent)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: copperPrimary),
-              onPressed: () {
-                Navigator.pop(context);
-                _actualizarProductoAPI(producto['id'], nombreCtrl.text, double.tryParse(precioCtrl.text) ?? 0.0);
-              },
-              child: const Text('Guardar', style: TextStyle(color: Colors.white)),
-            ),
-          ],
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: copperPrimary),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _actualizarProductoAPI(producto['id'], nombreCtrl.text, double.tryParse(precioCtrl.text) ?? 0.0);
+                  },
+                  child: const Text('Guardar', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
         );
       },
     );
@@ -286,28 +304,36 @@ class _ProductosScreenState extends State<ProductosScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: sidebarBackground,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: const Text('Eliminar Producto', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          content: Text(
-            '¿Estás seguro que deseas eliminar "${producto['nombre']}" de forma permanente?',
-            style: const TextStyle(color: Colors.white),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () {
-                Navigator.pop(context); // Cierra la ventana
-                _eliminarProductoAPI(producto['id']); // Llama a la API
-              },
-              child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
+        return ValueListenableBuilder<bool>(
+          valueListenable: isDarkModeGlobal,
+          builder: (context, isDark, child) {
+            final Color dialogBg = isDark ? const Color(0xFF1A1A1A) : Colors.white;
+            final Color dialogText = isDark ? Colors.white : const Color(0xFF222222);
+
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: const Text('Eliminar Producto', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              content: Text(
+                '¿Estás seguro que deseas eliminar "${producto['nombre']}" de forma permanente?',
+                style: TextStyle(color: dialogText),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Cancelar', style: TextStyle(color: isDark ? Colors.white70 : Colors.black54)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                  onPressed: () {
+                    Navigator.pop(context); // Cierra la ventana
+                    _eliminarProductoAPI(producto['id']); // Llama a la API
+                  },
+                  child: const Text('Eliminar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          }
         );
       },
     );
@@ -335,94 +361,111 @@ class _ProductosScreenState extends State<ProductosScreen> {
   // ==========================================
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    // 2. ENVOLVEMOS LA PANTALLA EN EL ESCUCHADOR GLOBAL
+    return ValueListenableBuilder<bool>(
+      valueListenable: isDarkModeGlobal,
+      builder: (context, isDark, child) {
+        
+        // 3. PALETA DINÁMICA DE COLORES
+        final Color panelColor = isDark ? const Color(0xFF1A1A1A) : Colors.white; 
+        final Color textColor = isDark ? Colors.white : const Color(0xFF222222);
+        final Color textLightColor = isDark ? Colors.white70 : Colors.black54;
+        final Color searchBgColor = isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF0F2F5);
+        final Color borderColor = isDark ? Colors.white12 : Colors.black12;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Catálogo de Productos', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-            ElevatedButton.icon(
-              onPressed: _mostrarDialogoCrear,
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text('Nuevo Producto', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: copperPrimary,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Catálogo de Productos', style: TextStyle(color: textColor, fontSize: 28, fontWeight: FontWeight.bold)),
+                ElevatedButton.icon(
+                  onPressed: _mostrarDialogoCrear,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text('Nuevo Producto', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: copperPrimary,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            TextField(
+              controller: _searchController,
+              onChanged: _filtrarProductos,
+              style: TextStyle(color: textColor),
+              decoration: InputDecoration(
+                hintText: 'Buscar jugo, sándwich, etc...',
+                hintStyle: TextStyle(color: textLightColor),
+                prefixIcon: Icon(Icons.search, color: copperPrimary),
+                filled: true,
+                fillColor: searchBgColor,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               ),
             ),
+            const SizedBox(height: 24),
+
+            Expanded(
+              child: _isLoading 
+                ? Center(child: CircularProgressIndicator(color: copperPrimary))
+                : _errorMensaje.isNotEmpty
+                  ? Center(child: Text(_errorMensaje, style: const TextStyle(color: Colors.redAccent)))
+                  : _categoriasFiltradas.isEmpty
+                    ? Center(child: Text('No se encontraron productos.', style: TextStyle(color: textLightColor)))
+                    : ListView.builder(
+                        itemCount: _categoriasFiltradas.length,
+                        itemBuilder: (context, index) {
+                          final categoria = _categoriasFiltradas[index];
+                          final productos = categoria['productos'] ?? [];
+
+                          return Card(
+                            color: panelColor,
+                            elevation: isDark ? 0 : 2,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: borderColor)
+                            ),
+                            child: ExpansionTile(
+                              iconColor: copperPrimary,
+                              collapsedIconColor: textLightColor,
+                              initiallyExpanded: _searchController.text.isNotEmpty,
+                              title: Text(categoria['nombre'] ?? '', style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                              children: productos.map<Widget>((producto) {
+                                return Container(
+                                  decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor))),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+                                    title: Text(producto['nombre'], style: TextStyle(color: textColor)),
+                                    subtitle: Text('S/ ${producto['precio'].toString()}', style: TextStyle(color: copperPrimary, fontWeight: FontWeight.bold)),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent), 
+                                          onPressed: () => _mostrarDialogoEditar(producto),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent), 
+                                          onPressed: () => _mostrarDialogoEliminar(producto),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                      ),
+            ),
           ],
-        ),
-        const SizedBox(height: 20),
-
-        TextField(
-          controller: _searchController,
-          onChanged: _filtrarProductos,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Buscar jugo, sándwich, etc...',
-            hintStyle: TextStyle(color: textLight),
-            prefixIcon: Icon(Icons.search, color: copperPrimary),
-            filled: true,
-            fillColor: sidebarBackground,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        Expanded(
-          child: _isLoading 
-            ? Center(child: CircularProgressIndicator(color: copperPrimary))
-            : _errorMensaje.isNotEmpty
-              ? Center(child: Text(_errorMensaje, style: const TextStyle(color: Colors.redAccent)))
-              : _categoriasFiltradas.isEmpty
-                ? const Center(child: Text('No se encontraron productos.', style: TextStyle(color: Colors.white70)))
-                : ListView.builder(
-                    itemCount: _categoriasFiltradas.length,
-                    itemBuilder: (context, index) {
-                      final categoria = _categoriasFiltradas[index];
-                      final productos = categoria['productos'] ?? [];
-
-                      return Card(
-                        color: sidebarBackground,
-                        margin: const EdgeInsets.only(bottom: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: ExpansionTile(
-                          iconColor: copperPrimary,
-                          collapsedIconColor: textLight,
-                          initiallyExpanded: _searchController.text.isNotEmpty,
-                          title: Text(categoria['nombre'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                          children: productos.map<Widget>((producto) {
-                            return Container(
-                              decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05)))),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-                                title: Text(producto['nombre'], style: const TextStyle(color: Colors.white)),
-                                subtitle: Text('S/ ${producto['precio'].toString()}', style: TextStyle(color: copperPrimary, fontWeight: FontWeight.bold)),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent), 
-                                      onPressed: () => _mostrarDialogoEditar(producto),
-                                    ),
-                                    // EL BOTÓN DE ELIMINAR AHORA ABRE LA VENTANA DE CONFIRMACIÓN
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent), 
-                                      onPressed: () => _mostrarDialogoEliminar(producto),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      );
-                    },
-                  ),
-        ),
-      ],
+        );
+      }
     );
   }
 }
