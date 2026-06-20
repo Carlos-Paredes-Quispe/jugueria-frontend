@@ -4,7 +4,7 @@ import 'dart:convert';
 import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
 
 class ProductosScreen extends StatefulWidget {
-  const ProductosScreen({Key? key}) : super(key: key);
+  const ProductosScreen({super.key});
 
   @override
   State<ProductosScreen> createState() => _ProductosScreenState();
@@ -141,7 +141,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
                       const SizedBox(height: 24),
                       DropdownButtonFormField<int>(
                         dropdownColor: dialogBg,
-                        value: categoriaSeleccionadaId,
+                        initialValue: categoriaSeleccionadaId,
                         style: TextStyle(color: dialogText),
                         decoration: InputDecoration(
                           labelText: 'Categoría',

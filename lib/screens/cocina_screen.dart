@@ -5,7 +5,7 @@ import 'dart:async'; // Para el refresco automático
 import '../tema_global.dart';
 
 class CocinaScreen extends StatefulWidget {
-  const CocinaScreen({Key? key}) : super(key: key);
+  const CocinaScreen({super.key});
 
   @override
   State<CocinaScreen> createState() => _CocinaScreenState();
@@ -121,7 +121,7 @@ class _CocinaScreenState extends State<CocinaScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.check_circle_outline, size: 80, color: Colors.green.withOpacity(0.5)),
+                          Icon(Icons.check_circle_outline, size: 80, color: Colors.green.withValues(alpha: 0.5)),
                           const SizedBox(height: 16),
                           Text('¡Cocina limpia! No hay pedidos pendientes', style: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 18)),
                         ],
@@ -160,7 +160,7 @@ class _CocinaScreenState extends State<CocinaScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                 decoration: BoxDecoration(
-                                  color: pedido['estado'] == 'PREPARANDO' ? Colors.orange.withOpacity(0.2) : copperPrimary.withOpacity(0.15),
+                                  color: pedido['estado'] == 'PREPARANDO' ? Colors.orange.withValues(alpha: 0.2) : copperPrimary.withValues(alpha: 0.15),
                                   borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
                                 ),
                                 child: Row(

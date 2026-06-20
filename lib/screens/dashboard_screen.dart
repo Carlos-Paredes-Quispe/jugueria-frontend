@@ -8,11 +8,12 @@ import 'vista_sillas.dart';
 import 'productos_screen.dart'; 
 import 'cocina_screen.dart';
 import 'punto_venta_screen.dart';
+import 'config_impresoras_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String rolUsuario;
 
-  const DashboardScreen({Key? key, this.rolUsuario = 'ADMINISTRADOR'}) : super(key: key);
+  const DashboardScreen({super.key, this.rolUsuario = 'ADMINISTRADOR'});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -114,6 +115,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Divider(color: dividerColor, height: 40, indent: _menuExpandido ? 20 : 10, endIndent: _menuExpandido ? 20 : 10),
                       _crearBotonMenu(3, Icons.inventory_2_outlined, 'Productos', textColor, textLightColor),
                       _crearBotonMenu(4, Icons.bar_chart, 'Reportes', textColor, textLightColor), 
+                      _crearBotonMenu(5, Icons.print, 'Configurar Impresora', textColor, textLightColor), 
                     ],
 
                     const Spacer(),
@@ -186,7 +188,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         padding: EdgeInsets.symmetric(vertical: 12, horizontal: _menuExpandido ? 16 : 0),
         decoration: BoxDecoration(
-          color: estaSeleccionado ? copperPrimary.withOpacity(0.15) : Colors.transparent,
+          color: estaSeleccionado ? copperPrimary.withValues(alpha: 0.15) : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: estaSeleccionado ? copperPrimary : Colors.transparent),
         ),
@@ -227,6 +229,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return const ProductosScreen();
       case 4:
         return Center(child: Text('📊 Reportes Administrativos', style: TextStyle(color: textColor, fontSize: 24)));
+      case 5:
+        return const ConfigImpresorasScreen();
       default:
         return Center(child: Text('Seleccione una opción', style: TextStyle(color: textColor, fontSize: 24)));
     }

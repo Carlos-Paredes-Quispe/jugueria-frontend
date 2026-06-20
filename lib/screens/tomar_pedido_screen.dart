@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../tema_global.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/impresora_service.dart'; // Ajusta la ruta correcta
 
 class TomarPedidoScreen extends StatefulWidget {
   final Map<String, dynamic> silla; 
 
-  const TomarPedidoScreen({Key? key, required this.silla}) : super(key: key);
+  const TomarPedidoScreen({super.key, required this.silla});
 
   @override
   State<TomarPedidoScreen> createState() => _TomarPedidoScreenState();
@@ -16,7 +18,7 @@ class _TomarPedidoScreenState extends State<TomarPedidoScreen> {
   final Color copperPrimary = const Color(0xFFC07C46);
 
   List<dynamic> _categoriasMenu = [];
-  List<Map<String, dynamic>> _carrito = [];
+  final List<Map<String, dynamic>> _carrito = [];
   bool _isLoading = true;
   int _categoriaSeleccionadaIndex = 0;
 
@@ -155,6 +157,25 @@ class _TomarPedidoScreenState extends State<TomarPedidoScreen> {
       );
 
       if (response.statusCode == 201) {
+        // --- NUEVO: IMPRIMIR COMANDA DE COCINA ---
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final ipCocina = prefs.getString('ip_ticketera_cocina') ?? '';
+          
+          if (ipCocina.isNotEmpty) {
+            // 1. Declaramos el nombre de la mesa aquí dentro para que Flutter lo reconozca
+            final bool esGrupo = widget.silla['grupo'] != null;
+            final String tituloMesa = esGrupo ? 'Grupo ${widget.silla['grupo']}' : 'Silla ${widget.silla['id']}';
+
+            // 2. Ahora sí generamos el ticket sin error
+            final bytes = await ImpresoraService.generarTicketCocina(tituloMesa, _carrito);
+            await ImpresoraService.enviarAImpresoraIP(ipCocina, bytes);
+          }
+        } catch (e) {
+          print("Error al imprimir comanda: $e");
+        }
+        // -----------------------------------------
+
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Pedido enviado con éxito! 🍹', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
         Navigator.pop(context); 
       }
@@ -213,7 +234,7 @@ class _TomarPedidoScreenState extends State<TomarPedidoScreen> {
                         // Filtro de categorías horizontal
                         Container(
                           height: 60,
-                          color: isDark ? const Color(0xFF1A1A1A).withOpacity(0.5) : Colors.white,
+                          color: isDark ? const Color(0xFF1A1A1A).withValues(alpha: 0.5) : Colors.white,
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
                             itemCount: _categoriasMenu.length,

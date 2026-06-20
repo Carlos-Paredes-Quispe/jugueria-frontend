@@ -5,7 +5,7 @@ import 'tomar_pedido_screen.dart';
 import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
 
 class VistaSillas extends StatefulWidget {
-  const VistaSillas({Key? key}) : super(key: key);
+  const VistaSillas({super.key});
 
   @override
   State<VistaSillas> createState() => _VistaSillasState();
@@ -16,7 +16,7 @@ class _VistaSillasState extends State<VistaSillas> {
 
   bool _isLoading = true;
   bool _modoJuntar = false;
-  List<int> _sillasSeleccionadasParaJuntar = [];
+  final List<int> _sillasSeleccionadasParaJuntar = [];
   
   // Ahora las sillas vienen del backend
   List<dynamic> _sillas = [];
@@ -276,7 +276,7 @@ class _VistaSillasState extends State<VistaSillas> {
                       Color colorTextoSilla = textColor;
 
                       if (_modoJuntar && estaSeleccionada) {
-                        colorFondo = copperPrimary.withOpacity(0.25);
+                        colorFondo = copperPrimary.withValues(alpha: 0.25);
                         colorBorde = copperPrimary;
                         colorIcono = copperPrimary;
                       } else if (estaOcupada) {
@@ -298,7 +298,7 @@ class _VistaSillasState extends State<VistaSillas> {
                             boxShadow: [
                               if (!isDark && !estaOcupada)
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
+                                  color: Colors.black.withValues(alpha: 0.05),
                                   blurRadius: 6,
                                   offset: const Offset(0, 3)
                                 )

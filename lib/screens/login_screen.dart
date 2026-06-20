@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   _LoginScreenState createState() => _LoginScreenState();
@@ -152,7 +152,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // 3. PALETA DINÁMICA DE COLORES
         final Color bgColor = isDark ? const Color(0xFF0A0A0A) : const Color(0xFFF0F2F5);
         final Color textColor = isDark ? const Color(0xFFE0E0E0) : const Color(0xFF222222);
-        final Color subtitleColor = isDark ? const Color(0xFFE0E0E0).withOpacity(0.7) : Colors.black54;
+        final Color subtitleColor = isDark ? const Color(0xFFE0E0E0).withValues(alpha: 0.7) : Colors.black54;
 
         return Scaffold(
           backgroundColor: bgColor,
@@ -222,7 +222,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Checkbox(
                                   value: _recordarUsuario,
                                   activeColor: copperPrimary, 
-                                  side: BorderSide(color: textColor.withOpacity(0.5)), // Borde visible en ambos modos
+                                  side: BorderSide(color: textColor.withValues(alpha: 0.5)), // Borde visible en ambos modos
                                   onChanged: (bool? value) {
                                     setState(() {
                                       _recordarUsuario = value ?? false;
@@ -248,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderRadius: BorderRadius.circular(30),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: copperPrimary.withOpacity(0.2),
+                                    color: copperPrimary.withValues(alpha: 0.2),
                                     blurRadius: 10,
                                     offset: const Offset(0, 5),
                                   ),
@@ -315,8 +315,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required bool isDark, // <--- Nueva variable recibida
   }) {
     final Color inputTextColor = isDark ? const Color(0xFFE0E0E0) : const Color(0xFF222222);
-    final Color hintColor = isDark ? const Color(0xFFE0E0E0).withOpacity(0.5) : Colors.black45;
-    final Color fillColor = isDark ? Colors.white.withOpacity(0.05) : Colors.white;
+    final Color hintColor = isDark ? const Color(0xFFE0E0E0).withValues(alpha: 0.5) : Colors.black45;
+    final Color fillColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white;
 
     return TextField(
       controller: controller,
@@ -330,7 +330,7 @@ class _LoginScreenState extends State<LoginScreen> {
         fillColor: fillColor,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide(color: copperPrimary.withOpacity(0.3), width: 1),
+          borderSide: BorderSide(color: copperPrimary.withValues(alpha: 0.3), width: 1),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
