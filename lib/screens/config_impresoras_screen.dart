@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/impresora_service.dart'; // Ajusta la ruta de tu servicio
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
+import '../services/impresora_service.dart';
 import '../tema_global.dart';
 
 class ConfigImpresorasScreen extends StatefulWidget {
@@ -12,64 +11,69 @@ class ConfigImpresorasScreen extends StatefulWidget {
 }
 
 class _ConfigImpresorasScreenState extends State<ConfigImpresorasScreen> {
-  final Color copperPrimary = const Color(0xFFC07C46);
-  
-  final TextEditingController _ipCajaCtrl = TextEditingController();
-  final TextEditingController _ipCocinaCtrl = TextEditingController();
+  final TextEditingController _ipCajaController = TextEditingController();
+  final TextEditingController _ipCocinaController = TextEditingController();
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _cargarIPsGuardadas();
+    _cargarConfiguracion();
   }
 
-  // Carga las IPs almacenadas en la tablet
-  Future<void> _cargarIPsGuardadas() async {
+  // 1. CARGAR IPs GUARDADAS
+  Future<void> _cargarConfiguracion() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _ipCajaCtrl.text = prefs.getString('ip_ticketera_caja') ?? '192.168.1.90';
-      _ipCocinaCtrl.text = prefs.getString('ip_ticketera_cocina') ?? '192.168.1.236';
+      // Si es la primera vez, ponemos unas IPs de ejemplo
+      _ipCajaController.text = prefs.getString('ip_ticketera_caja') ?? '192.168.18.236';
+      _ipCocinaController.text = prefs.getString('ip_ticketera_cocina') ?? '192.168.18.237';
+      _isLoading = false;
     });
   }
 
-  // Guarda las IPs permanentemente
+  // 2. GUARDAR NUEVAS IPs
   Future<void> _guardarConfiguracion() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ip_ticketera_caja', _ipCajaCtrl.text.trim());
-    await prefs.setString('ip_ticketera_cocina', _ipCocinaCtrl.text.trim());
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('¡Configuración de impresoras guardada! 💾'),
-      backgroundColor: Colors.green,
-    ));
+    await prefs.setString('ip_ticketera_caja', _ipCajaController.text.trim());
+    await prefs.setString('ip_ticketera_cocina', _ipCocinaController.text.trim());
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('¡Configuración guardada exitosamente! ✅'), 
+          backgroundColor: AppColores.verdeLogo,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
-  // Envía un ticket de prueba básico para verificar que la IP responde
-  Future<void> _probarImpresora(String ip, String nombreSeccion) async {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Probando conexión con $nombreSeccion...')));
-    
-    final profile = await CapabilityProfile.load();
-    final generator = Generator(PaperSize.mm58, profile);
-    List<int> bytes = [];
+  // 3. ENVIAR TICKET DE PRUEBA
+  Future<void> _probarImpresora(String ip, String tipoImpresora) async {
+    if (ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor, ingresa una IP válida'), backgroundColor: Colors.redAccent));
+      return;
+    }
 
-    bytes += generator.text('TEST CONEXION - DRAGONPOS', styles: const PosStyles(align: PosAlign.center, bold: true));
-    bytes += generator.text('Impresora: $nombreSeccion', styles: const PosStyles(align: PosAlign.center));
-    bytes += generator.text('IP: $ip', styles: const PosStyles(align: PosAlign.center));
-    bytes += generator.feed(2);
-    bytes += generator.cut();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enviando prueba a $ip...'), backgroundColor: AppColores.naranjaLogo));
 
-    bool exito = await ImpresoraService.enviarAImpresoraIP(ip, bytes);
-
-    if (exito) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('¡Conexión exitosa con $nombreSeccion! 🧾✔️'),
-        backgroundColor: Colors.green,
-      ));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Error: No se pudo conectar a la IP $ip. Verifica que la ticketera esté encendida.'),
-        backgroundColor: Colors.red,
-      ));
+    try {
+      // Usamos el servicio de cocina simulando un producto para ver si imprime
+      final bytes = await ImpresoraService.generarTicketCocina(
+        'PRUEBA DE CONEXIÓN - $tipoImpresora', 
+        [{'cantidad': 1, 'nombre': 'Conexión Exitosa', 'notas': 'La tablet se comunicó con la impresora'}]
+      );
+      
+      await ImpresoraService.enviarAImpresoraIP(ip, bytes);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Prueba enviada! Debería estar imprimiendo...'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de red: No se encontró la impresora en $ip'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -78,84 +82,152 @@ class _ConfigImpresorasScreenState extends State<ConfigImpresorasScreen> {
     return ValueListenableBuilder<bool>(
       valueListenable: isDarkModeGlobal,
       builder: (context, isDark, child) {
-        final Color textColor = isDark ? Colors.white : const Color(0xFF222222);
-        final Color panelColor = isDark ? const Color(0xFF1A1A1A) : Colors.white;
+        final Color cardColor = isDark ? AppColores.tarjetaOscura : AppColores.tarjetaClara;
+        final Color textColor = isDark ? AppColores.textoOscuro : AppColores.textoClaro;
+        final Color textLightColor = isDark ? AppColores.textoOscuroSecundario : AppColores.textoClaroSecundario;
 
-        return Scaffold(
-          backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF0F2F5),
-          body: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Configuración de Hardware', style: TextStyle(color: textColor, fontSize: 26, fontWeight: FontWeight.bold)),
-                Text('Enlace de Ticketeras Térmicas por Red Local (TCP/IP)', style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 14)),
-                const SizedBox(height: 30),
+        if (_isLoading) {
+          return Center(child: CircularProgressIndicator(color: AppColores.naranjaLogo));
+        }
 
-                // CARD CONFIGURACIÓN CAJA
-                _buildFormImpresora("Ticketera de Caja (Boletas / Precuentas)", _ipCajaCtrl, () => _probarImpresora(_ipCajaCtrl.text, "CAJA"), panelColor, textColor),
-                const SizedBox(height: 20),
-
-                // CARD CONFIGURACIÓN COCINA
-                _buildFormImpresora("Ticketera de Cocina (Comandas)", _ipCocinaCtrl, () => _probarImpresora(_ipCocinaCtrl.text, "COCINA"), panelColor, textColor),
-                
-                const Spacer(),
-
-                // BOTÓN GUARDAR CONFIGURACIÓN GENERAL
-                SizedBox(
-                  width: double.infinity,
-                  height: 55,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: copperPrimary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    icon: const Icon(Icons.save, color: Colors.white),
-                    label: const Text('GUARDAR AJUSTES DE IMPRESIÓN', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    onPressed: _guardarConfiguracion,
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 15, offset: const Offset(0, 5))
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.print, color: AppColores.naranjaLogo, size: 32),
+                      const SizedBox(width: 15),
+                      Text('Configuración de Impresoras', style: TextStyle(color: textColor, fontSize: 24, fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                )
-              ],
+                  const SizedBox(height: 10),
+                  Text(
+                    'Ingresa la dirección IP de cada impresora térmica (formato: 192.168.x.x). Asegúrate de que la tablet y las impresoras estén conectadas al mismo WiFi.',
+                    style: TextStyle(color: textLightColor, fontSize: 14),
+                  ),
+                  const SizedBox(height: 30),
+
+                  // ==========================================
+                  // CONFIGURACIÓN: CAJA
+                  // ==========================================
+                  _buildImpresoraCard(
+                    titulo: 'Impresora de CAJA (Boletas)',
+                    icono: Icons.receipt_long,
+                    controlador: _ipCajaController,
+                    colorTema: AppColores.verdeLogo,
+                    textColor: textColor,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ==========================================
+                  // CONFIGURACIÓN: COCINA
+                  // ==========================================
+                  _buildImpresoraCard(
+                    titulo: 'Impresora de COCINA (Comandas)',
+                    icono: Icons.restaurant_menu,
+                    controlador: _ipCocinaController,
+                    colorTema: AppColores.naranjaLogo,
+                    textColor: textColor,
+                    isDark: isDark,
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // BOTÓN GUARDAR
+                  SizedBox(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColores.naranjaLogo,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                      ),
+                      onPressed: _guardarConfiguracion,
+                      icon: const Icon(Icons.save, color: Colors.white),
+                      label: const Text('GUARDAR CONFIGURACIÓN', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
-      },
+      }
     );
   }
 
-  Widget _buildFormImpresora(String titulo, TextEditingController controller, VoidCallback onTest, Color panelColor, Color textColor) {
+  // Tarjeta reutilizable para cada impresora
+  Widget _buildImpresoraCard({
+    required String titulo,
+    required IconData icono,
+    required TextEditingController controlador,
+    required Color colorTema,
+    required Color textColor,
+    required bool isDark,
+  }) {
+    final Color fillColor = isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF9F9F9);
+    final Color borderColor = isDark ? Colors.white12 : Colors.black12;
+
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: panelColor, borderRadius: BorderRadius.circular(15)),
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(titulo, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(icono, color: colorTema),
+              const SizedBox(width: 10),
+              Text(titulo, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          const SizedBox(height: 15),
           Row(
             children: [
               Expanded(
                 child: TextField(
-                  controller: controller,
-                  style: TextStyle(color: textColor),
-                  keyboardType: TextInputType.values[3], // Teclado numérico/puntos
+                  controller: controlador,
+                  style: TextStyle(color: textColor, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                  keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    prefixIcon: Icon(Icons.router, color: copperPrimary),
-                    hintText: 'Ej: 192.168.1.100',
-                    hintStyle: TextStyle(color: textColor.withValues(alpha: 0.4)),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    labelText: 'Dirección IP',
+                    prefixIcon: const Icon(Icons.wifi),
+                    filled: true,
+                    fillColor: fillColor,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                   ),
                 ),
               ),
               const SizedBox(width: 15),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                icon: const Icon(Icons.print, color: Colors.white),
-                label: const Text('PROBAR', style: TextStyle(color: Colors.white)),
-                onPressed: onTest,
-              )
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  side: BorderSide(color: colorTema),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                ),
+                onPressed: () => _probarImpresora(controlador.text.trim(), titulo),
+                icon: Icon(Icons.print, color: colorTema),
+                label: Text('PROBAR', style: TextStyle(color: colorTema, fontWeight: FontWeight.bold)),
+              ),
             ],
-          )
+          ),
         ],
       ),
     );

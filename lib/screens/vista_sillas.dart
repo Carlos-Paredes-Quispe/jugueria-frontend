@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'tomar_pedido_screen.dart';
 import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
+import 'package:flutter_jugueria/main.dart';
 
 class VistaSillas extends StatefulWidget {
   const VistaSillas({super.key});
@@ -25,6 +26,14 @@ class _VistaSillasState extends State<VistaSillas> {
   void initState() {
     super.initState();
     _cargarSillas();
+    mostrarSoporteGlobal.value = false;
+  }
+  // ✅ AGREGA ESTE BLOQUE JUSTO AQUÍ ABAJO:
+  @override
+  void dispose() {
+  // Volvemos a mostrar el botón de soporte automáticamente al salir de Sillas
+    mostrarSoporteGlobal.value = true;
+    super.dispose(); // <-- Esta línea es obligatoria al final del dispose
   }
 
   // ==========================================

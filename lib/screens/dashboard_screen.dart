@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../tema_global.dart'; // <-- IMPORTAMOS LA VARIABLE GLOBAL
+import '../tema_global.dart'; // <-- PALETA DE COLORES GLOBAL
 
+import 'caja_screen.dart';
 import 'login_screen.dart'; 
-import 'vista_sillas.dart';
 import 'productos_screen.dart'; 
 import 'cocina_screen.dart';
 import 'punto_venta_screen.dart';
@@ -20,27 +20,35 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Color principal de marca que no cambia
-  final Color copperPrimary = const Color(0xFFC07C46); 
-
+  // Inicializamos en el índice 0, que ahora corresponderá directamente a Punto de Venta
   int _indiceSeleccionado = 0; 
   bool _menuExpandido = true; 
+  String _nombreUsuarioLogueado = "Cargando..."; 
+
+  @override
+  void initState() {
+    super.initState();
+    _obtenerUsuarioLogueado();
+  }
+
+  Future<void> _obtenerUsuarioLogueado() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _nombreUsuarioLogueado = prefs.getString('usuarioGuardado') ?? widget.rolUsuario;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // ENVOLVEMOS EL DASHBOARD EN EL ESCUCHADOR GLOBAL
     return ValueListenableBuilder<bool>(
       valueListenable: isDarkModeGlobal,
       builder: (context, isDark, child) {
 
-        // ==========================================
-        // PALETA DINÁMICA DE COLORES
-        // ==========================================
-        final Color mainBgColor = isDark ? const Color(0xFF0A0A0A) : const Color(0xFFE8EAED);
-        final Color sidebarBgColor = isDark ? const Color(0xFF1A1A1A) : Colors.white;
-        final Color textColor = isDark ? Colors.white : const Color(0xFF222222);
-        final Color textLightColor = isDark ? Colors.white70 : Colors.black54;
-        final Color dividerColor = isDark ? Colors.white24 : Colors.black12;
+        final Color mainBgColor = isDark ? AppColores.fondoOscuro : AppColores.fondoClaro; 
+        final Color sidebarBgColor = isDark ? AppColores.tarjetaOscura : AppColores.tarjetaClara; 
+        final Color textColor = isDark ? AppColores.textoOscuro : AppColores.textoClaro; 
+        final Color textLightColor = isDark ? AppColores.textoOscuroSecundario : AppColores.textoClaroSecundario;
+        final Color dividerColor = isDark ? Colors.white24 : AppColores.textoClaroSecundario.withValues(alpha: 0.2);
 
         return Scaffold(
           backgroundColor: mainBgColor,
@@ -53,28 +61,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 width: _menuExpandido ? 250 : 80, 
-                color: sidebarBgColor, // <--- Color dinámico
+                decoration: BoxDecoration(
+                  color: sidebarBgColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.04), 
+                      blurRadius: 15,
+                      offset: const Offset(3, 0),
+                    )
+                  ],
+                ),
                 child: Column(
                   children: [
                     const SizedBox(height: 20),
                     
-                    // Fila superior: Modo Claro/Oscuro y Botón Hamburguesa
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
                         mainAxisAlignment: _menuExpandido ? MainAxisAlignment.spaceBetween : MainAxisAlignment.center,
                         children: [
-                          // Botón del Tema (Solo visible si está expandido o podrías dejarlo siempre)
                           if (_menuExpandido)
                             IconButton(
-                              icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode, color: copperPrimary),
+                              icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode, color: AppColores.naranjaLogo),
                               onPressed: () {
                                 isDarkModeGlobal.value = !isDarkModeGlobal.value;
                               },
                               tooltip: 'Cambiar tema',
                             ),
-                            
-                          // Botón Hamburguesa
                           IconButton(
                             icon: Icon(Icons.menu, color: textColor),
                             onPressed: () {
@@ -88,29 +101,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Logo dinámico
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       height: _menuExpandido ? 80 : 40,
-                      child: Image.asset('assets/images/logoJugueriafondo.png', fit: BoxFit.contain), 
+                      child: Image.asset(
+                        'assets/images/logoJugueriafondo.png', 
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => 
+                            const Icon(Icons.local_drink, size: 40, color: AppColores.naranjaLogo),
+                      ), 
                     ),
                     
-                    // Título (solo visible si está expandido)
                     if (_menuExpandido) ...[
                       const SizedBox(height: 10),
                       Text(
-                        'DragonRES',
-                        style: TextStyle(color: textColor, fontSize: 20, fontWeight: FontWeight.bold),
+                        'VERASALUD',
+                        style: TextStyle(
+                          color: textColor, 
+                          fontSize: 18, 
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 40),
 
-                    // Botones del menú
-                    _crearBotonMenu(0, Icons.chair_alt, 'Sillas', textColor, textLightColor),
-                    _crearBotonMenu(1, Icons.blender, 'Pedidos', textColor, textLightColor), 
-                    _crearBotonMenu(2, Icons.point_of_sale, 'Punto de Venta', textColor, textLightColor),
+                    // 🔥 MENÚ REORGANIZADO: Quitamos "Sillas" y "Punto de Venta" pasa al índice 0
+                    _crearBotonMenu(0, Icons.money, 'Caja', textColor, textLightColor),
+                    _crearBotonMenu(1, Icons.point_of_sale, 'Punto de Venta', textColor, textLightColor),
+                    _crearBotonMenu(2, Icons.blender, 'Pedidos / Cocina', textColor, textLightColor), 
                     
-                    // Opciones exclusivas del Administrador
                     if (widget.rolUsuario == 'ADMINISTRADOR') ...[
                       Divider(color: dividerColor, height: 40, indent: _menuExpandido ? 20 : 10, endIndent: _menuExpandido ? 20 : 10),
                       _crearBotonMenu(3, Icons.inventory_2_outlined, 'Productos', textColor, textLightColor),
@@ -120,9 +140,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     const Spacer(),
                     
-                    // ==========================================
-                    // BOTÓN DE CERRAR SESIÓN
-                    // ==========================================
                     InkWell(
                       onTap: () async {
                         SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -158,12 +175,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
 
               // ==========================================
-              // 2. ÁREA CENTRAL
+              // 2. ÁREA CENTRAL 
               // ==========================================
               Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(24.0),
-                  child: _mostrarPantallaCentral(textColor),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      color: Colors.transparent,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const Icon(Icons.account_circle, color: AppColores.naranjaLogo, size: 28),
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _nombreUsuarioLogueado,
+                                style: TextStyle(color: textColor, fontSize: 15, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                widget.rolUsuario,
+                                style: TextStyle(color: textLightColor, fontSize: 12, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.only(left: 24, right: 24, bottom: 24),
+                        child: _mostrarPantallaCentral(textColor),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -173,7 +222,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Función actualizada para recibir los colores del tema
   Widget _crearBotonMenu(int indice, IconData icono, String titulo, Color textColor, Color textLightColor) {
     final bool estaSeleccionado = _indiceSeleccionado == indice;
 
@@ -188,22 +236,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         padding: EdgeInsets.symmetric(vertical: 12, horizontal: _menuExpandido ? 16 : 0),
         decoration: BoxDecoration(
-          color: estaSeleccionado ? copperPrimary.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: estaSeleccionado ? copperPrimary : Colors.transparent),
+          color: estaSeleccionado ? AppColores.naranjaLogo.withValues(alpha: 0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: estaSeleccionado ? AppColores.naranjaLogo : Colors.transparent),
         ),
         child: Row(
           mainAxisAlignment: _menuExpandido ? MainAxisAlignment.start : MainAxisAlignment.center,
           children: [
-            Icon(icono, color: estaSeleccionado ? copperPrimary : textLightColor),
+            Icon(icono, color: estaSeleccionado ? AppColores.naranjaLogo : textLightColor),
             if (_menuExpandido) ...[
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
                   titulo,
                   style: TextStyle(
-                    color: estaSeleccionado ? copperPrimary : textColor,
-                    fontWeight: estaSeleccionado ? FontWeight.bold : FontWeight.normal,
+                    color: estaSeleccionado ? AppColores.naranjaLogo : textColor,
+                    fontWeight: estaSeleccionado ? FontWeight.w900 : FontWeight.w500,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis, 
@@ -216,19 +264,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Controlador de las pantallas
+  // 🔥 CONTROLADOR DE PANTALLAS CON RUTA CENTRALIZADA
   Widget _mostrarPantallaCentral(Color textColor) {
     switch (_indiceSeleccionado) {
       case 0:
-        return const VistaSillas();
+        // Ahora "Punto de Venta" es el encargado de arrancar mostrando las sillas internamente
+        return const CajaScreen();
       case 1:
-        return const CocinaScreen();
-      case 2:
         return const PuntoVentaScreen();
+      case 2:
+        return const CocinaScreen();
       case 3:
         return const ProductosScreen();
       case 4:
-        return Center(child: Text('📊 Reportes Administrativos', style: TextStyle(color: textColor, fontSize: 24)));
+        return Center(child: Text('📊 Reportes Administrativos', style: TextStyle(color: textColor, fontSize: 24))); 
       case 5:
         return const ConfigImpresorasScreen();
       default:

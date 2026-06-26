@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async'; // Para el refresco automático
 import '../tema_global.dart';
+import 'package:flutter_jugueria/main.dart';
 
 class CocinaScreen extends StatefulWidget {
   const CocinaScreen({super.key});
@@ -22,7 +23,7 @@ class _CocinaScreenState extends State<CocinaScreen> {
   void initState() {
     super.initState();
     _cargarComandasCocina();
-    
+    mostrarSoporteGlobal.value = false;
     // REFRESCO AUTOMÁTICO: Cada 8 segundos consulta al backend por nuevos pedidos
     _timerRefresco = Timer.periodic(const Duration(seconds: 8), (timer) {
       _cargarComandasCocina(silencioso: true);
@@ -32,6 +33,7 @@ class _CocinaScreenState extends State<CocinaScreen> {
   @override
   void dispose() {
     _timerRefresco?.cancel(); // Cancelamos el timer al salir de la pantalla para no gastar memoria
+    mostrarSoporteGlobal.value = true;
     super.dispose();
   }
 
