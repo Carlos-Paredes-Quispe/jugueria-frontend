@@ -6,18 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// ========================================================
-// 🔥 NUEVA VARIABLE GLOBAL PARA CONTROLAR LA VISIBILIDAD
-// ========================================================
+// Control global para mostrar/ocultar el botón flotante de soporte.
 final ValueNotifier<bool> mostrarSoporteGlobal = ValueNotifier<bool>(true);
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-  String rolUsuario = prefs.getString('rolUsuario') ?? 'ADMINISTRADOR';
+  // Modo pantalla completa para tablet.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+  final String rolUsuario = prefs.getString('rolUsuario') ?? 'ADMINISTRADOR';
 
   runApp(MyApp(isLoggedIn: isLoggedIn, rolUsuario: rolUsuario));
 }
@@ -26,7 +26,11 @@ class MyApp extends StatelessWidget {
   final bool isLoggedIn;
   final String rolUsuario;
 
-  const MyApp({super.key, required this.isLoggedIn, required this.rolUsuario});
+  const MyApp({
+    super.key,
+    required this.isLoggedIn,
+    required this.rolUsuario,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,21 +38,17 @@ class MyApp extends StatelessWidget {
       title: 'DragonRES',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      
       builder: (context, child) {
         return Stack(
           children: [
-            ?child,
-            
-            // Posicionamos el contenedor del botón
+            child ?? const SizedBox.shrink(),
+
             Positioned(
-              right: 20, 
+              right: 20,
               bottom: 20,
-              // Escucha si debe mostrarse u ocultarse
               child: ValueListenableBuilder<bool>(
                 valueListenable: mostrarSoporteGlobal,
                 builder: (context, mostrar, _) {
-                  // Si es falso, devuelve un espacio vacío invisible e incleable
                   if (!mostrar) return const SizedBox.shrink();
                   return const BotonSoporteGlobal();
                 },
@@ -57,17 +57,13 @@ class MyApp extends StatelessWidget {
           ],
         );
       },
-
-      home: isLoggedIn 
-          ? DashboardScreen(rolUsuario: rolUsuario) 
-          : const LoginScreen(), 
+      home: isLoggedIn
+          ? DashboardScreen(rolUsuario: rolUsuario)
+          : const LoginScreen(),
     );
   }
 }
 
-// ==========================================
-// WIDGET GLOBAL DE SOPORTE TÉCNICO
-// ==========================================
 class BotonSoporteGlobal extends StatelessWidget {
   const BotonSoporteGlobal({super.key});
 
@@ -76,20 +72,25 @@ class BotonSoporteGlobal extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Opacity(
-        opacity: 0.5, 
+        opacity: 0.5,
         child: FloatingActionButton.extended(
           heroTag: 'btnSoporteGlobal',
-          backgroundColor: const Color(0xFFC58E58), 
-          elevation: 0, 
+          backgroundColor: const Color(0xFFC58E58),
+          elevation: 0,
           onPressed: () {
-            if (navigatorKey.currentContext != null) {
-              _mostrarModalSoporte(navigatorKey.currentContext!);
+            final contextActual = navigatorKey.currentContext;
+            if (contextActual != null) {
+              _mostrarModalSoporte(contextActual);
             }
           },
           icon: const Icon(Icons.support_agent, color: Colors.white),
           label: const Text(
-            'S', 
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1)
+            'S',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+            ),
           ),
         ),
       ),
@@ -105,36 +106,51 @@ class BotonSoporteGlobal extends StatelessWidget {
           children: [
             Icon(Icons.headset_mic, color: Color(0xFFC58E58), size: 30),
             SizedBox(width: 10),
-            Text('Soporte DragonPOS', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(
+              'Soporte DragonPOS',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ],
         ),
-        content: Column(
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('¿Necesitas ayuda con el sistema de la juguería? Comunícate con nuestro equipo técnico:', style: TextStyle(fontSize: 15)),
-            const SizedBox(height: 20),
+            Text(
+              '¿Necesitas ayuda con el sistema de la juguería? Comunícate con nuestro equipo técnico:',
+              style: TextStyle(fontSize: 15),
+            ),
+            SizedBox(height: 20),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.phone_android, color: Colors.green),
-                const SizedBox(width: 10),
+                Icon(Icons.phone_android, color: Colors.green),
+                SizedBox(width: 10),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text('WhatsApp: +51 997 978 179', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  children: [
+                    Text(
+                      'WhatsApp: +51 997 978 179',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
                     SizedBox(height: 4),
-                    Text('WhatsApp: +51 999 888 777', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(
+                      'WhatsApp: +51 999 888 777',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
                   ],
                 ),
               ],
             ),
-            const SizedBox(height: 15),
-            const Row(
+            SizedBox(height: 15),
+            Row(
               children: [
                 Icon(Icons.email_outlined, color: Colors.blueAccent),
                 SizedBox(width: 10),
-                Text('soporte@dragonpos.com', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(
+                  'soporte@dragonpos.com',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
               ],
             ),
           ],
@@ -142,7 +158,13 @@ class BotonSoporteGlobal extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('CERRAR', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            child: const Text(
+              'CERRAR',
+              style: TextStyle(
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),

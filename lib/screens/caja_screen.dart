@@ -1,6 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_jugueria/config/api_config.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/impresora_service.dart';
 import '../tema_global.dart';
 
 class CajaScreen extends StatefulWidget {
@@ -12,8 +18,11 @@ class CajaScreen extends StatefulWidget {
 
 class _CajaScreenState extends State<CajaScreen> {
   bool _isLoading = true;
-  Map<String, dynamic>? _turnoActivo; // Si es null, la caja está cerrada
-  
+  bool _procesando = false;
+
+  Map<String, dynamic>? _turnoActivo;
+  Map<String, dynamic>? _resumenCierre;
+
   final TextEditingController _montoController = TextEditingController();
   final TextEditingController _descripcionController = TextEditingController();
 
@@ -23,360 +32,1057 @@ class _CajaScreenState extends State<CajaScreen> {
     _cargarTurnoActual();
   }
 
-  // ==========================================
-  // API: OBTENER TURNO ACTUAL
-  // ==========================================
+  @override
+  void dispose() {
+    _montoController.dispose();
+    _descripcionController.dispose();
+    super.dispose();
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  double? _leerMonto(String texto) {
+    return double.tryParse(texto.trim().replaceAll(',', '.'));
+  }
+
+  String _mensajeBackend(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is Map && data['message'] != null) return data['message'].toString();
+      if (data is Map && data['mensaje'] != null) return data['mensaje'].toString();
+      return body;
+    } catch (_) {
+      return body;
+    }
+  }
+
+  void _mostrarMensaje(String mensaje, Color color) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _cargarTurnoActual() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
-    
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      final response = await http.get(Uri.parse('http://192.168.18.194:3000/caja/actual'));
-      
+      final response = await http
+          .get(
+            ApiConfig.uri('/caja/actual'),
+            headers: {'Accept': 'application/json'},
+          )
+          .timeout(ApiConfig.timeout);
+
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
-        // Si el backend responde 200 pero el cuerpo es vacío o la palabra "null"
-        if (response.body.isEmpty || response.body == 'null') {
-          setState(() {
-            _turnoActivo = null; // Mapea como Caja Cerrada limpiamente
-            _isLoading = false;
-          });
-        } else {
-          setState(() {
-            _turnoActivo = jsonDecode(response.body); // Mapea Caja Abierta con sus datos
-            _isLoading = false;
-          });
-        }
+        setState(() {
+          if (response.body.isEmpty || response.body == 'null') {
+            _turnoActivo = null;
+          } else {
+            _turnoActivo = jsonDecode(response.body);
+          }
+
+          _isLoading = false;
+        });
       } else {
-        // Cualquier otro código de error (404, 500)
         setState(() {
           _turnoActivo = null;
           _isLoading = false;
         });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Caja en modo local o sin conexión activa'),
-            backgroundColor: Colors.orange,
-          ),
+
+        _mostrarMensaje(
+          'No se pudo consultar caja: ${_mensajeBackend(response.body)}',
+          Colors.orange,
         );
       }
+    } on TimeoutException {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      _mostrarMensaje(
+        'Tiempo agotado consultando caja.',
+        Colors.orange,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      _mostrarMensaje(
+        'No se pudo conectar con caja: $e',
+        Colors.orange,
+      );
     }
   }
 
-  // ==========================================
-  // API: ABRIR CAJA
-  // ==========================================
-  Future<void> _abrirCaja() async {
-    print("1. BOTÓN PRESIONADO"); // <-- Para ver si el botón reacciona
+  Future<void> _cargarResumenCierre() async {
+    try {
+      final response = await http
+          .get(
+            ApiConfig.uri('/caja/resumen-actual'),
+            headers: {'Accept': 'application/json'},
+          )
+          .timeout(ApiConfig.timeout);
 
-    if (_montoController.text.isEmpty) {
-      print("❌ ERROR: El campo de texto está vacío. Cancelando.");
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor, ingresa un monto primero')));
+      if (!mounted) return;
+
+      if (response.statusCode == 200 && response.body != 'null') {
+        setState(() {
+          _resumenCierre = jsonDecode(response.body);
+        });
+      } else {
+        _mostrarMensaje(
+          'No se pudo cargar el resumen de caja.',
+          Colors.orange,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      _mostrarMensaje(
+        'Error cargando resumen de cierre: $e',
+        Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> _abrirCaja() async {
+    if (_procesando) return;
+
+    final double? montoInicial = _leerMonto(_montoController.text);
+
+    if (montoInicial == null || montoInicial < 0) {
+      _mostrarMensaje(
+        'Ingresa un monto válido para abrir caja.',
+        Colors.redAccent,
+      );
       return;
     }
 
-    print("2. MONTO INGRESADO: ${_montoController.text}");
+    setState(() {
+      _procesando = true;
+    });
 
     try {
-      print("3. ENVIANDO PETICIÓN AL BACKEND...");
-      final response = await http.post(
-        Uri.parse('http://192.168.18.194:3000/caja/abrir'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'montoInicial': double.parse(_montoController.text),
-          'usuarioApertura': 'Cajero Principal',
-        }),
-      );
+      final prefs = await SharedPreferences.getInstance();
+      final usuario =
+          prefs.getString('usuarioLogueado') ??
+          prefs.getString('usuarioGuardado') ??
+          'Cajero Principal';
 
-      print("4. RESPUESTA DEL BACKEND RECIBIDA: Status ${response.statusCode}");
-      print("5. CUERPO DE RESPUESTA: ${response.body}");
+      final response = await http
+          .post(
+            ApiConfig.uri('/caja/abrir'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'montoInicial': montoInicial,
+              'usuarioApertura': usuario,
+            }),
+          )
+          .timeout(ApiConfig.timeout);
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         _montoController.clear();
-        _cargarTurnoActual(); 
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Caja abierta exitosamente', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+
+        _mostrarMensaje(
+          'Caja abierta exitosamente ✅',
+          Colors.green,
+        );
+
+        await _cargarTurnoActual();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error del servidor: ${response.body}'), backgroundColor: Colors.red));
-      }
-    } catch (e) {
-      print("❌ 6. ERROR FATAL DE FLUTTER: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de conexión: $e'), backgroundColor: Colors.red));
-    }
-  }
-
-  // ==========================================
-  // API: MOVIMIENTOS (INGRESO / EGRESO)
-  // ==========================================
-  Future<void> _registrarMovimiento(String tipo) async {
-    if (_montoController.text.isEmpty || _descripcionController.text.isEmpty) return;
-
-    try {
-      final response = await http.post(
-        Uri.parse('http://192.168.18.194:3000/caja/movimiento'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'cajaTurnoId': _turnoActivo!['id'],
-          'tipo': tipo, // 'INGRESO' o 'EGRESO'
-          'monto': double.parse(_montoController.text),
-          'descripcion': _descripcionController.text,
-        }),
-      );
-
-      if (response.statusCode == 201) {
-        Navigator.pop(context); // Cierra el modal
-        _montoController.clear();
-        _descripcionController.clear();
-        _cargarTurnoActual();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$tipo registrado'), backgroundColor: Colors.green));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al registrar movimiento')));
-    }
-  }
-
-  // ==========================================
-  // API: CERRAR CAJA
-  // ==========================================
-  Future<void> _cerrarCaja() async {
-    if (_montoController.text.isEmpty) return;
-
-    try {
-      final response = await http.patch(
-        Uri.parse('http://192.168.18.194:3000/caja/cerrar/${_turnoActivo!['id']}'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'montoEfectivoReal': double.parse(_montoController.text),
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        Navigator.pop(context); // Cierra el modal de arqueo
-        _montoController.clear();
-        
-        // Forzamos manualmente el estado a null antes de volver a consultar
-        setState(() {
-          _turnoActivo = null; 
-        });
-        
-        _cargarTurnoActual(); // Recarga la vista reflejando la "Caja Cerrada"
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Caja Cerrada y Turno Archivado!'), backgroundColor: Colors.blue)
+        _mostrarMensaje(
+          'No se pudo abrir caja: ${_mensajeBackend(response.body)}',
+          Colors.redAccent,
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al procesar cierre')));
+      if (!mounted) return;
+
+      _mostrarMensaje(
+        'Error al abrir caja: $e',
+        Colors.redAccent,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _procesando = false;
+        });
+      }
     }
   }
 
-  // ==========================================
-  // MODALES
-  // ==========================================
+  Future<void> _registrarMovimiento(String tipo) async {
+    if (_procesando) return;
+
+    if (_turnoActivo == null) {
+      _mostrarMensaje(
+        'No hay caja abierta.',
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    final double? monto = _leerMonto(_montoController.text);
+    final descripcion = _descripcionController.text.trim();
+
+    if (monto == null || monto <= 0) {
+      _mostrarMensaje(
+        'Ingresa un monto válido mayor a 0.',
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    if (descripcion.isEmpty) {
+      _mostrarMensaje(
+        'Ingresa una descripción.',
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    setState(() {
+      _procesando = true;
+    });
+
+    try {
+      final response = await http
+          .post(
+            ApiConfig.uri('/caja/movimiento'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'cajaTurnoId': _turnoActivo!['id'],
+              'tipo': tipo,
+              'monto': monto,
+              'descripcion': descripcion,
+            }),
+          )
+          .timeout(ApiConfig.timeout);
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        Navigator.of(context).pop();
+
+        _montoController.clear();
+        _descripcionController.clear();
+
+        _mostrarMensaje(
+          tipo == 'INGRESO'
+              ? 'Ingreso registrado correctamente ✅'
+              : 'Egreso registrado correctamente ✅',
+          Colors.green,
+        );
+
+        await _cargarTurnoActual();
+      } else {
+        _mostrarMensaje(
+          'No se pudo registrar: ${_mensajeBackend(response.body)}',
+          Colors.redAccent,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      _mostrarMensaje(
+        'Error al registrar movimiento: $e',
+        Colors.redAccent,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _procesando = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _cerrarCajaDesdeModal() async {
+    if (_procesando) return;
+
+    if (_turnoActivo == null) {
+      _mostrarMensaje(
+        'No hay caja abierta para cerrar.',
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    final resumen = _resumenCierre ?? {};
+    final efectivoEsperado = _toDouble(resumen['efectivoEsperado']);
+
+    setState(() {
+      _procesando = true;
+    });
+
+    try {
+      final response = await http
+          .patch(
+            ApiConfig.uri('/caja/cerrar/${_turnoActivo!['id']}'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'montoEfectivoReal': efectivoEsperado,
+            }),
+          )
+          .timeout(ApiConfig.timeout);
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> cierre = jsonDecode(response.body);
+
+        bool impresionOk = false;
+
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final ipCaja = prefs.getString('ip_ticketera_caja') ?? '192.168.18.236';
+
+          final bytes = await ImpresoraService.generarCierreCaja(cierre);
+
+          impresionOk = await ImpresoraService.enviarAImpresoraIP(
+            ipCaja,
+            bytes,
+          );
+        } catch (e) {
+          debugPrint('Error imprimiendo cierre de caja: $e');
+        }
+
+        if (!mounted) return;
+
+        Navigator.of(context).pop();
+
+        setState(() {
+          _turnoActivo = null;
+          _resumenCierre = null;
+        });
+
+        _mostrarMensaje(
+          impresionOk
+              ? 'Caja cerrada e impresión enviada ✅'
+              : 'Caja cerrada, pero no se pudo imprimir el cierre.',
+          impresionOk ? Colors.green : Colors.orange,
+        );
+
+        await _cargarTurnoActual();
+      } else {
+        _mostrarMensaje(
+          'No se pudo cerrar caja: ${_mensajeBackend(response.body)}',
+          Colors.redAccent,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      _mostrarMensaje(
+        'Error al cerrar caja: $e',
+        Colors.redAccent,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _procesando = false;
+        });
+      }
+    }
+  }
+
   void _mostrarModalMovimiento(String tipo) {
     _montoController.clear();
     _descripcionController.clear();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Registrar $tipo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: _montoController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Monto (S/)', prefixIcon: Icon(Icons.attach_money))),
-            const SizedBox(height: 10),
-            TextField(controller: _descripcionController, decoration: const InputDecoration(labelText: 'Descripción / Motivo')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: tipo == 'INGRESO' ? Colors.green : Colors.red),
-            onPressed: () => _registrarMovimiento(tipo),
-            child: const Text('Guardar', style: TextStyle(color: Colors.white)),
-          )
-        ],
-      )
-    );
-  }
 
-  void _mostrarModalCierre() {
-    _montoController.clear();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cierre de Caja (Arqueo)'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Cuenta el dinero físico en la gaveta y digita el monto exacto.'),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _montoController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Efectivo en gaveta (S/)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.monetization_on, color: Colors.green)),
+      barrierDismissible: !_procesando,
+      builder: (dialogContext) {
+        final tecladoAltura = MediaQuery.of(dialogContext).viewInsets.bottom;
+
+        return AlertDialog(
+          insetPadding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 24,
+            bottom: tecladoAltura + 24,
+          ),
+          title: Text(tipo == 'INGRESO' ? 'Registrar ingreso' : 'Registrar egreso'),
+          content: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _montoController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Monto (S/)',
+                    prefixIcon: Icon(Icons.attach_money),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _descripcionController,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción / Motivo',
+                    prefixIcon: Icon(Icons.notes),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _procesando ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tipo == 'INGRESO' ? Colors.green : Colors.red,
+              ),
+              onPressed: _procesando ? null : () => _registrarMovimiento(tipo),
+              child: Text(
+                _procesando ? 'Guardando...' : 'Guardar',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
-            onPressed: _cerrarCaja,
-            child: const Text('CONFIRMAR CIERRE', style: TextStyle(color: Colors.white)),
-          )
-        ],
-      )
+        );
+      },
     );
   }
 
-  // ==========================================
-  // INTERFAZ VISUAL
-  // ==========================================
+  Future<void> _mostrarModalCierre() async {
+    await _cargarResumenCierre();
+
+    if (!mounted || _resumenCierre == null) return;
+
+    final resumen = _resumenCierre!;
+    final montoInicial = _toDouble(resumen['montoInicial']);
+    final cantidadVentas = resumen['cantidadVentas'] ?? 0;
+    final totalVendido = _toDouble(resumen['totalVendido']);
+    final pendientesSync = resumen['pendientesSync'] ?? 0;
+
+    showDialog(
+      context: context,
+      barrierDismissible: !_procesando,
+      builder: (dialogContext) {
+        final double tecladoAltura = MediaQuery.of(dialogContext).viewInsets.bottom;
+        final double anchoPantalla = MediaQuery.of(dialogContext).size.width;
+        final bool esCelular = anchoPantalla < 650;
+
+        return Dialog(
+          insetPadding: EdgeInsets.only(
+            left: esCelular ? 14 : 24,
+            right: esCelular ? 14 : 24,
+            top: 24,
+            bottom: tecladoAltura + 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Container(
+              width: esCelular ? double.infinity : 520,
+              padding: EdgeInsets.all(esCelular ? 24 : 34),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF2F8F1),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Cerrar caja',
+                      style: TextStyle(
+                        color: const Color(0xFF0B2D2E),
+                        fontSize: esCelular ? 30 : 36,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '¿Confirmas el cierre del turno actual?',
+                      style: TextStyle(
+                        color: const Color(0xFF0B2D2E),
+                        fontSize: esCelular ? 19 : 22,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  _filaModalCierre(
+                    'Monto inicial',
+                    'S/ ${montoInicial.toStringAsFixed(2)}',
+                    esCelular: esCelular,
+                  ),
+                  const SizedBox(height: 12),
+                  _filaModalCierre(
+                    'Ventas del turno',
+                    cantidadVentas.toString(),
+                    esCelular: esCelular,
+                  ),
+                  const SizedBox(height: 12),
+                  _filaModalCierre(
+                    'Total vendido',
+                    'S/ ${totalVendido.toStringAsFixed(2)}',
+                    esCelular: esCelular,
+                  ),
+                  const SizedBox(height: 12),
+                  _filaModalCierre(
+                    'Pendientes sync',
+                    pendientesSync.toString(),
+                    esCelular: esCelular,
+                  ),
+                  const SizedBox(height: 32),
+                  if (esCelular)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE94045),
+                            padding: const EdgeInsets.symmetric(vertical: 17),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                          ),
+                          onPressed: _procesando ? null : _cerrarCajaDesdeModal,
+                          child: Text(
+                            _procesando ? 'Cerrando...' : 'Cerrar caja',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextButton(
+                          onPressed: _procesando ? null : () => Navigator.pop(dialogContext),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              color: Color(0xFF0E785F),
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: _procesando ? null : () => Navigator.pop(dialogContext),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              color: Color(0xFF0E785F),
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE94045),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 34,
+                              vertical: 18,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                          ),
+                          onPressed: _procesando ? null : _cerrarCajaDesdeModal,
+                          child: Text(
+                            _procesando ? 'Cerrando...' : 'Cerrar caja',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _filaModalCierre(
+    String titulo,
+    String valor, {
+    required bool esCelular,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: esCelular ? 16 : 22,
+        vertical: esCelular ? 15 : 18,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              titulo,
+              style: TextStyle(
+                color: const Color(0xFF6A7E7A),
+                fontSize: esCelular ? 16 : 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Text(
+            valor,
+            style: TextStyle(
+              color: const Color(0xFF0B2D2E),
+              fontSize: esCelular ? 17 : 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: isDarkModeGlobal,
       builder: (context, isDark, child) {
-        final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF0F2F5);
-        final cardColor = isDark ? AppColores.tarjetaOscura : Colors.white;
-        final textColor = isDark ? Colors.white : Colors.black87;
+        final bgColor = isDark ? AppColores.fondoOscuro : AppColores.fondoClaro;
+        final cardColor = isDark ? AppColores.tarjetaOscura : AppColores.tarjetaClara;
+        final textColor = isDark ? AppColores.textoOscuro : AppColores.textoClaro;
 
-        if (_isLoading) return Center(child: CircularProgressIndicator(color: AppColores.naranjaLogo));
-
-        return Scaffold(
-          backgroundColor: bgColor,
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 800),
-              padding: const EdgeInsets.all(24),
-              child: _turnoActivo == null ? _buildCajaCerrada(cardColor, textColor) : _buildCajaAbierta(cardColor, textColor),
+        if (_isLoading) {
+          return Center(
+            child: CircularProgressIndicator(
+              color: AppColores.naranjaLogo,
             ),
-          ),
+          );
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final bool esCelular = constraints.maxWidth < 760;
+            final double tecladoAltura = MediaQuery.of(context).viewInsets.bottom;
+
+            return Container(
+              color: bgColor,
+              width: double.infinity,
+              height: double.infinity,
+              child: SingleChildScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  left: esCelular ? 8 : 16,
+                  right: esCelular ? 8 : 16,
+                  top: esCelular ? 8 : 16,
+                  bottom: tecladoAltura + 24,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 920),
+                    child: _turnoActivo == null
+                        ? _buildCajaCerrada(
+                            cardColor: cardColor,
+                            textColor: textColor,
+                            esCelular: esCelular,
+                          )
+                        : _buildCajaAbierta(
+                            cardColor: cardColor,
+                            textColor: textColor,
+                            esCelular: esCelular,
+                          ),
+                  ),
+                ),
+              ),
+            );
+          },
         );
-      }
+      },
     );
   }
 
-  // VISTA 1: CAJA CERRADA (Apertura)
-  Widget _buildCajaCerrada(Color cardColor, Color textColor) {
+  Widget _buildCajaCerrada({
+    required Color cardColor,
+    required Color textColor,
+    required bool esCelular,
+  }) {
     return Card(
       color: cardColor,
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.all(40.0),
+        padding: EdgeInsets.all(esCelular ? 26 : 40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_outline, size: 80, color: AppColores.naranjaLogo),
-            const SizedBox(height: 20),
-            Text('CAJA CERRADA', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor)),
+            Icon(
+              Icons.lock_outline,
+              size: esCelular ? 64 : 80,
+              color: AppColores.naranjaLogo,
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'CAJA CERRADA',
+              style: TextStyle(
+                fontSize: esCelular ? 22 : 24,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
             const SizedBox(height: 10),
-            Text('Para empezar a cobrar pedidos, necesitas abrir el turno.', style: TextStyle(color: textColor.withValues(alpha: 0.7))),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: 300,
+            Text(
+              'Para empezar a cobrar pedidos, necesitas abrir el turno.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: textColor.withOpacity(0.7)),
+            ),
+            const SizedBox(height: 26),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
               child: TextField(
                 controller: _montoController,
-                keyboardType: TextInputType.number,
-                style: TextStyle(color: textColor, fontSize: 20),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(color: textColor, fontSize: 19),
                 decoration: InputDecoration(
-                  labelText: 'Monto de Apertura (Sencillo) S/',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  labelText: 'Monto de apertura S/',
+                  hintText: 'Ejemplo: 50.00',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   prefixIcon: const Icon(Icons.attach_money),
                 ),
               ),
             ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: 300, height: 50,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: AppColores.verdeLogo, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                onPressed: _abrirCaja,
-                child: const Text('ABRIR CAJA', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 26),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: SizedBox(
+                height: 52,
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColores.verdeLogo,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: _procesando ? null : _abrirCaja,
+                  child: Text(
+                    _procesando ? 'ABRIENDO...' : 'ABRIR CAJA',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
-            )
+            ),
           ],
         ),
       ),
     );
   }
 
-  // VISTA 2: CAJA ABIERTA (Resumen)
-  Widget _buildCajaAbierta(Color cardColor, Color textColor) {
-    // Calculo de Saldo Esperado en Efectivo
-    final double inicial = double.tryParse(_turnoActivo!['montoInicial'].toString()) ?? 0.0;
-    final double ventasEf = double.tryParse(_turnoActivo!['ventasEfectivo'].toString()) ?? 0.0;
-    final double ingresos = double.tryParse(_turnoActivo!['ingresos'].toString()) ?? 0.0;
-    final double egresos = double.tryParse(_turnoActivo!['egresos'].toString()) ?? 0.0;
-    
-    final double saldoEsperado = inicial + ventasEf + ingresos - egresos;
+  Widget _buildCajaAbierta({
+    required Color cardColor,
+    required Color textColor,
+    required bool esCelular,
+  }) {
+    final inicial = _toDouble(_turnoActivo!['montoInicial']);
+    final ventasEf = _toDouble(_turnoActivo!['ventasEfectivo']);
+    final ventasTarjeta = _toDouble(_turnoActivo!['ventasTarjeta']);
+    final ventasDigital = _toDouble(_turnoActivo!['ventasDigital']);
+    final ingresos = _toDouble(_turnoActivo!['ingresos']);
+    final egresos = _toDouble(_turnoActivo!['egresos']);
+    final saldoEsperado = inicial + ventasEf + ingresos - egresos;
+
+    final widgetsMetricas = [
+      _buildMetricaCard(
+        'Monto Inicial',
+        inicial,
+        Icons.play_circle_filled,
+        Colors.blueGrey,
+        cardColor,
+        textColor,
+      ),
+      _buildMetricaCard(
+        'Ventas Efectivo',
+        ventasEf,
+        Icons.payments,
+        Colors.green,
+        cardColor,
+        textColor,
+      ),
+      _buildMetricaCard(
+        'Tarjeta / Digital',
+        ventasTarjeta + ventasDigital,
+        Icons.credit_card,
+        Colors.orange,
+        cardColor,
+        textColor,
+      ),
+      _buildMetricaCard(
+        'Ingresos Manuales',
+        ingresos,
+        Icons.arrow_downward,
+        Colors.teal,
+        cardColor,
+        textColor,
+      ),
+      _buildMetricaCard(
+        'Egresos / Gastos',
+        egresos,
+        Icons.arrow_upward,
+        Colors.red,
+        cardColor,
+        textColor,
+      ),
+      _buildMetricaCard(
+        'EFECTIVO ESPERADO',
+        saldoEsperado,
+        Icons.account_balance_wallet,
+        AppColores.verdeLogo,
+        cardColor,
+        textColor,
+        isDestacado: true,
+      ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Resumen de Turno Actual', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor)),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.green)),
-              child: const Text('CAJA ABIERTA', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-            )
-          ],
-        ),
-        const SizedBox(height: 30),
-        
-        // Tarjetas de Métricas
-        Row(
-          children: [
-            _buildMetricaCard('Monto Inicial', inicial, Icons.play_circle_filled, Colors.blueGrey, cardColor, textColor),
-            _buildMetricaCard('Ventas Efectivo', ventasEf, Icons.payments, Colors.green, cardColor, textColor),
-            _buildMetricaCard('Ventas Tarjeta/Yape', (double.tryParse(_turnoActivo!['ventasTarjeta'].toString()) ?? 0.0) + (double.tryParse(_turnoActivo!['ventasDigital'].toString()) ?? 0.0), Icons.credit_card, Colors.orange, cardColor, textColor),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Row(
-          children: [
-            _buildMetricaCard('Ingresos Manuales', ingresos, Icons.arrow_downward, Colors.teal, cardColor, textColor),
-            _buildMetricaCard('Egresos / Gastos', egresos, Icons.arrow_upward, Colors.red, cardColor, textColor),
-            _buildMetricaCard('EFECTIVO ESPERADO', saldoEsperado, Icons.account_balance_wallet, AppColores.verdeLogo, cardColor, textColor, isDestacado: true),
-          ],
-        ),
-        
-        const Spacer(),
-        
-        // Botonera de Acción
-        Row(
-          children: [
-            Expanded(child: OutlinedButton.icon(style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(20), foregroundColor: Colors.teal, side: const BorderSide(color: Colors.teal)), onPressed: () => _mostrarModalMovimiento('INGRESO'), icon: const Icon(Icons.add), label: const Text('Ingreso Extra'))),
-            const SizedBox(width: 15),
-            Expanded(child: OutlinedButton.icon(style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(20), foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)), onPressed: () => _mostrarModalMovimiento('EGRESO'), icon: const Icon(Icons.remove), label: const Text('Registrar Gasto'))),
-            const SizedBox(width: 15),
-            Expanded(child: ElevatedButton.icon(style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(20), backgroundColor: Colors.blueGrey), onPressed: _mostrarModalCierre, icon: const Icon(Icons.lock, color: Colors.white), label: const Text('CERRAR CAJA Y ARQUEAR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
-          ],
-        )
+        if (esCelular)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Resumen de Turno Actual',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _badgeCajaAbierta(),
+            ],
+          )
+        else
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Resumen de Turno Actual',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              _badgeCajaAbierta(),
+            ],
+          ),
+        const SizedBox(height: 24),
+
+        if (esCelular)
+          Column(
+            children: widgetsMetricas
+                .map(
+                  (widget) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: widget,
+                  ),
+                )
+                .toList(),
+          )
+        else ...[
+          Row(children: widgetsMetricas.sublist(0, 3)),
+          const SizedBox(height: 12),
+          Row(children: widgetsMetricas.sublist(3, 6)),
+        ],
+
+        const SizedBox(height: 28),
+
+        if (esCelular)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _botonMovimiento(
+                titulo: 'Ingreso Extra',
+                icono: Icons.add,
+                color: Colors.teal,
+                onPressed: () => _mostrarModalMovimiento('INGRESO'),
+              ),
+              const SizedBox(height: 12),
+              _botonMovimiento(
+                titulo: 'Registrar Gasto',
+                icono: Icons.remove,
+                color: Colors.red,
+                onPressed: () => _mostrarModalMovimiento('EGRESO'),
+              ),
+              const SizedBox(height: 12),
+              _botonCerrarCaja(),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: _botonMovimiento(
+                  titulo: 'Ingreso Extra',
+                  icono: Icons.add,
+                  color: Colors.teal,
+                  onPressed: () => _mostrarModalMovimiento('INGRESO'),
+                ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: _botonMovimiento(
+                  titulo: 'Registrar Gasto',
+                  icono: Icons.remove,
+                  color: Colors.red,
+                  onPressed: () => _mostrarModalMovimiento('EGRESO'),
+                ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(child: _botonCerrarCaja()),
+            ],
+          ),
       ],
     );
   }
 
-  Widget _buildMetricaCard(String titulo, double valor, IconData icono, Color color, Color cardColor, Color textColor, {bool isDestacado = false}) {
+  Widget _badgeCajaAbierta() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.green),
+      ),
+      child: const Text(
+        'CAJA ABIERTA',
+        style: TextStyle(
+          color: Colors.green,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _botonMovimiento({
+    required String titulo,
+    required IconData icono,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.all(18),
+        foregroundColor: color,
+        side: BorderSide(color: color),
+      ),
+      onPressed: _procesando ? null : onPressed,
+      icon: Icon(icono),
+      label: Text(titulo),
+    );
+  }
+
+  Widget _botonCerrarCaja() {
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.all(18),
+        backgroundColor: Colors.blueGrey,
+      ),
+      onPressed: _procesando ? null : _mostrarModalCierre,
+      icon: const Icon(Icons.lock, color: Colors.white),
+      label: const Text(
+        'CERRAR CAJA Y ARQUEAR',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricaCard(
+    String titulo,
+    double valor,
+    IconData icono,
+    Color color,
+    Color cardColor,
+    Color textColor, {
+    bool isDestacado = false,
+  }) {
     return Expanded(
       child: Card(
-        color: isDestacado ? color.withValues(alpha: 0.1) : cardColor,
+        color: isDestacado ? color.withOpacity(0.10) : cardColor,
         elevation: isDestacado ? 0 : 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isDestacado ? color : Colors.transparent, width: 2)),
-        margin: const EdgeInsets.all(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isDestacado ? color : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        margin: const EdgeInsets.all(6),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -384,11 +1090,28 @@ class _CajaScreenState extends State<CajaScreen> {
                 children: [
                   Icon(icono, color: color, size: 20),
                   const SizedBox(width: 8),
-                  Text(titulo, style: TextStyle(color: textColor.withValues(alpha: 0.7), fontSize: 13)),
+                  Expanded(
+                    child: Text(
+                      titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor.withOpacity(0.7),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
-              Text('S/ ${valor.toStringAsFixed(2)}', style: TextStyle(color: isDestacado ? color : textColor, fontSize: 24, fontWeight: FontWeight.bold)),
+              Text(
+                'S/ ${valor.toStringAsFixed(2)}',
+                style: TextStyle(
+                  color: isDestacado ? color : textColor,
+                  fontSize: 23,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         ),

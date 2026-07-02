@@ -5,6 +5,8 @@ import 'tomar_pedido_screen.dart';
 import '../tema_global.dart'; // <-- 1. IMPORTAMOS LA VARIABLE GLOBAL
 import 'package:flutter_jugueria/main.dart';
 
+import '../config/api_config.dart'; // <-- 2. IMPORTAMOS LA CONFIGURACIÓN DE API
+
 class VistaSillas extends StatefulWidget {
   const VistaSillas({super.key});
 
@@ -43,7 +45,7 @@ class _VistaSillasState extends State<VistaSillas> {
   Future<void> _cargarSillas() async {
     setState(() => _isLoading = true);
     try {
-      final url = Uri.parse('http://192.168.18.194:3000/sillas');
+      final url = ApiConfig.uri('/sillas');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -62,7 +64,7 @@ class _VistaSillasState extends State<VistaSillas> {
 
   Future<void> _ocuparSillaAPI(int idSilla) async {
     try {
-      final url = Uri.parse('http://192.168.18.194:3000/sillas/$idSilla/ocupar');
+      final url = ApiConfig.uri('/sillas/$idSilla/ocupar');
       await http.patch(url);
       _cargarSillas(); // Recargamos para ver el cambio
     } catch (e) {
@@ -72,7 +74,7 @@ class _VistaSillasState extends State<VistaSillas> {
 
   Future<void> _liberarSillaAPI(int idSilla) async {
     try {
-      final url = Uri.parse('http://192.168.18.194:3000/sillas/$idSilla/liberar');
+      final url = ApiConfig.uri('/sillas/$idSilla/liberar');
       await http.patch(url);
       _cargarSillas();
     } catch (e) {
@@ -82,7 +84,7 @@ class _VistaSillasState extends State<VistaSillas> {
 
   Future<void> _agruparSillasAPI(List<int> ids) async {
     try {
-      final url = Uri.parse('http://192.168.18.194:3000/sillas/agrupar');
+      final url = ApiConfig.uri('/sillas/agrupar');
       await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -96,7 +98,7 @@ class _VistaSillasState extends State<VistaSillas> {
 
   Future<void> _liberarGrupoAPI(int grupoId) async {
     try {
-      final url = Uri.parse('http://192.168.18.194:3000/sillas/grupo/$grupoId/liberar');
+      final url = ApiConfig.uri('/sillas/grupo/$grupoId/liberar');
       await http.patch(url);
       _cargarSillas();
     } catch (e) {
